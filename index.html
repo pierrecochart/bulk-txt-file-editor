@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk TXT File Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h2 { margin-top: 0; }
+        .control-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background: #0052a3; }
+        #status {
+            margin-top: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+
+    <h2>Bulk TXT Editor</h2>
+    <p>Select multiple .txt files, replace specific text, and download them all in a single ZIP file.</p>
+
+    <div class="control-group">
+        <label for="fileInput">1. Select .txt files</label>
+        <input type="file" id="fileInput" multiple accept=".txt">
+    </div>
+
+    <div class="control-group">
+        <label for="findText">2. Find text (Exact match)</label>
+        <input type="text" id="findText" placeholder="Enter the text to find...">
+    </div>
+
+    <div class="control-group">
+        <label for="replaceText">3. Replace with</label>
+        <input type="text" id="replaceText" placeholder="Enter the new text...">
+    </div>
+
+    <button id="processBtn">Process & Download ZIP</button>
+    
+    <div id="status"></div>
+
+    <script>
+        document.getElementById('processBtn').addEventListener('click', async () => {
+            const files = document.getElementById('fileInput').files;
+            const findText = document.getElementById('findText').value;
+            const replaceText = document.getElementById('replaceText').value;
+            const statusElement = document.getElementById('status');
+
+            // --- Validation ---
+            if (files.length === 0) {
+                showStatus("Please select at least one .txt file.", "error");
+                return;
+            }
+            if (!findText) {
+                showStatus("Please enter the text you want to find.", "error");
+                return;
+            }
+
+            showStatus("Processing files...", "");
+            
+            // Initialize a new ZIP file
+            const zip = new JSZip();
+
+            try {
+                // Loop through all uploaded files
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    
+                    // Read the text content of the file
+                    const text = await file.text();
+                    
+                    // Perform a global replacement
+                    // Using split().join() is a safe way to replace all occurrences 
+                    // without needing to escape special Regex characters in the user's input.
+                    const modifiedText = text.split(findText).join(replaceText);
+                    
+                    // Add the modified text file to our zip
+                    zip.file(file.name, modifiedText);
+                }
+
+                // Generate the ZIP file as a Blob (binary data)
+                const blob = await zip.generateAsync({ type: "blob" });
+                
+                // Create a temporary link to download the zip file
+                const downloadUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = downloadUrl;
+                a.download = "Edited_Files.zip";
+                
+                // Trigger the download and clean up
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+                
+                showStatus(`Success! Packaged ${files.length} files into Edited_Files.zip.`, "success");
+
+            } catch (error) {
+                console.error(error);
+                showStatus("An error occurred while processing the files.", "error");
+            }
+        });
+
+        // Helper function to display messages
+        function showStatus(message, className) {
+            const statusElement = document.getElementById('status');
+            statusElement.innerText = message;
+            statusElement.className = className;
+        }
+    </script>
+</body>
+</html>
