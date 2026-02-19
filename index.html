@@ -3,146 +3,247 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bulk TXT File Editor</title>
+    <title>Advanced Bulk TXT Editor</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
             background-color: #f4f4f9;
             color: #333;
-            max-width: 600px;
+            max-width: 700px;
             margin: 40px auto;
-            padding: 20px;
+            padding: 20px 30px;
             background: white;
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        h2 { margin-top: 0; }
-        .control-group { margin-bottom: 20px; }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: bold;
-        }
+        h2, h3 { margin-top: 0; }
+        .section { margin-bottom: 25px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+        .section:last-child { border-bottom: none; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        
+        /* Inputs and Buttons */
         input[type="text"], input[type="file"] {
-            width: 100%;
-            padding: 10px;
-            box-sizing: border-box;
-            border: 1px solid #ccc;
-            border-radius: 4px;
+            width: 100%; padding: 10px; box-sizing: border-box;
+            border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px;
         }
+        .flex-row { display: flex; gap: 10px; align-items: flex-start; }
+        .flex-row > div { flex: 1; }
+        
         button {
-            width: 100%;
-            padding: 12px;
-            background: #0066cc;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background 0.2s;
+            padding: 10px 15px; border: none; border-radius: 4px;
+            font-size: 14px; cursor: pointer; transition: background 0.2s;
         }
-        button:hover { background: #0052a3; }
-        #status {
-            margin-top: 15px;
-            font-weight: bold;
-            text-align: center;
+        .btn-secondary { background: #e0e0e0; color: #333; margin-top: 24px; }
+        .btn-secondary:hover { background: #ccc; }
+        .btn-primary { width: 100%; background: #0066cc; color: white; padding: 15px; font-size: 16px; font-weight: bold;}
+        .btn-primary:hover { background: #0052a3; }
+        .btn-remove { background: #ff4d4d; color: white; padding: 5px 10px; font-size: 12px; }
+        .btn-remove:hover { background: #cc0000; }
+
+        /* Rule List & Results */
+        #rulesList { list-style: none; padding: 0; margin: 15px 0 0 0; }
+        #rulesList li { 
+            background: #f9f9fc; border: 1px solid #e2e2e2; padding: 10px; 
+            margin-bottom: 10px; border-radius: 4px; display: flex; 
+            justify-content: space-between; align-items: center; word-break: break-all;
         }
-        .success { color: green; }
-        .error { color: red; }
+        .rule-text { flex: 1; margin-right: 15px; }
+        
+        #resultsArea { display: none; background: #eef8f1; padding: 15px; border-radius: 4px; border: 1px solid #c3e6cb;}
+        .result-item { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed #ccc; }
+        .result-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .success-msg { color: #155724; font-weight: bold; margin-bottom: 15px; }
+        .error { color: red; font-weight: bold; margin-bottom: 15px;}
     </style>
 </head>
 <body>
 
-    <h2>Bulk TXT Editor</h2>
-    <p>Select multiple .txt files, replace specific text, and download them all in a single ZIP file.</p>
-
-    <div class="control-group">
+    <h2>Advanced Bulk TXT Editor</h2>
+    
+    <div class="section">
         <label for="fileInput">1. Select .txt files</label>
         <input type="file" id="fileInput" multiple accept=".txt">
+        <div id="fileError" class="error"></div>
     </div>
 
-    <div class="control-group">
-        <label for="findText">2. Find text (Exact match)</label>
-        <input type="text" id="findText" placeholder="Enter the text to find...">
+    <div class="section">
+        <label>2. Add Find & Replace Rules</label>
+        <div class="flex-row">
+            <div>
+                <input type="text" id="findText" placeholder="Find text (Exact match)...">
+            </div>
+            <div>
+                <input type="text" id="replaceText" placeholder="Replace with...">
+            </div>
+            <button id="addRuleBtn" class="btn-secondary">Add Rule</button>
+        </div>
+        <div id="ruleError" class="error"></div>
+        <ul id="rulesList">
+            </ul>
     </div>
 
-    <div class="control-group">
-        <label for="replaceText">3. Replace with</label>
-        <input type="text" id="replaceText" placeholder="Enter the new text...">
+    <div class="section">
+        <button id="processBtn" class="btn-primary">Process Files & Download ZIP</button>
     </div>
 
-    <button id="processBtn">Process & Download ZIP</button>
-    
-    <div id="status"></div>
+    <div id="resultsArea">
+        <div class="success-msg" id="overallStatus"></div>
+        <h3>Action Report:</h3>
+        <div id="resultsList"></div>
+    </div>
 
     <script>
+        // State variables
+        let rules = []; // Array to store {find: "", replace: ""} objects
+
+        // --- DOM Elements ---
+        const findInput = document.getElementById('findText');
+        const replaceInput = document.getElementById('replaceText');
+        const rulesListUI = document.getElementById('rulesList');
+        const ruleError = document.getElementById('ruleError');
+        const fileError = document.getElementById('fileError');
+        const resultsArea = document.getElementById('resultsArea');
+        const resultsList = document.getElementById('resultsList');
+        const overallStatus = document.getElementById('overallStatus');
+
+        // --- Add Rule Logic ---
+        document.getElementById('addRuleBtn').addEventListener('click', () => {
+            const find = findInput.value;
+            const replace = replaceInput.value;
+
+            if (!find) {
+                ruleError.innerText = "You must enter text to find.";
+                return;
+            }
+
+            // Clear errors and add to queue
+            ruleError.innerText = "";
+            rules.push({ find, replace });
+            
+            // Reset inputs and update UI
+            findInput.value = "";
+            replaceInput.value = "";
+            findInput.focus();
+            renderRules();
+        });
+
+        // --- Render Rules UI ---
+        function renderRules() {
+            rulesListUI.innerHTML = "";
+            rules.forEach((rule, index) => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <div class="rule-text">
+                        <strong>Find:</strong> "${rule.find}" <br>
+                        <strong>Replace:</strong> "${rule.replace}"
+                    </div>
+                    <button class="btn-remove" onclick="removeRule(${index})">Remove</button>
+                `;
+                rulesListUI.appendChild(li);
+            });
+        }
+
+        // --- Remove Rule Logic ---
+        window.removeRule = function(index) {
+            rules.splice(index, 1);
+            renderRules();
+        };
+
+        // --- Process and Download Logic ---
         document.getElementById('processBtn').addEventListener('click', async () => {
             const files = document.getElementById('fileInput').files;
-            const findText = document.getElementById('findText').value;
-            const replaceText = document.getElementById('replaceText').value;
-            const statusElement = document.getElementById('status');
-
-            // --- Validation ---
-            if (files.length === 0) {
-                showStatus("Please select at least one .txt file.", "error");
-                return;
-            }
-            if (!findText) {
-                showStatus("Please enter the text you want to find.", "error");
-                return;
-            }
-
-            showStatus("Processing files...", "");
             
-            // Initialize a new ZIP file
+            // Validation
+            fileError.innerText = "";
+            if (files.length === 0) {
+                fileError.innerText = "Please select at least one .txt file.";
+                return;
+            }
+            if (rules.length === 0) {
+                ruleError.innerText = "Please add at least one Find & Replace rule.";
+                return;
+            }
+
+            // Hide previous results
+            resultsArea.style.display = "none";
             const zip = new JSZip();
+            
+            // Set up statistics tracking for each rule
+            let ruleStats = rules.map(rule => ({
+                find: rule.find,
+                replace: rule.replace,
+                totalReplacements: 0,
+                filesAffected: 0
+            }));
 
             try {
                 // Loop through all uploaded files
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
+                    let text = await file.text();
                     
-                    // Read the text content of the file
-                    const text = await file.text();
+                    // Apply each rule sequentially to the file
+                    rules.forEach((rule, ruleIndex) => {
+                        // We use split() to find occurrences. 
+                        // The number of chunks minus 1 equals the number of matches found.
+                        const splitParts = text.split(rule.find);
+                        const matchCount = splitParts.length - 1;
+
+                        if (matchCount > 0) {
+                            // Update stats
+                            ruleStats[ruleIndex].totalReplacements += matchCount;
+                            ruleStats[ruleIndex].filesAffected += 1;
+                            
+                            // Rejoin the text with the replacement string
+                            text = splitParts.join(rule.replace);
+                        }
+                    });
                     
-                    // Perform a global replacement
-                    // Using split().join() is a safe way to replace all occurrences 
-                    // without needing to escape special Regex characters in the user's input.
-                    const modifiedText = text.split(findText).join(replaceText);
-                    
-                    // Add the modified text file to our zip
-                    zip.file(file.name, modifiedText);
+                    // Add the final modified text to the zip
+                    zip.file(file.name, text);
                 }
 
-                // Generate the ZIP file as a Blob (binary data)
+                // Generate and trigger download
                 const blob = await zip.generateAsync({ type: "blob" });
-                
-                // Create a temporary link to download the zip file
                 const downloadUrl = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = downloadUrl;
-                a.download = "Edited_Files.zip";
-                
-                // Trigger the download and clean up
+                a.download = "Bulk_Edited_Files.zip";
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(downloadUrl);
                 
-                showStatus(`Success! Packaged ${files.length} files into Edited_Files.zip.`, "success");
+                // Display Results Report
+                displayResults(files.length, ruleStats);
 
             } catch (error) {
                 console.error(error);
-                showStatus("An error occurred while processing the files.", "error");
+                fileError.innerText = "An error occurred while processing the files.";
             }
         });
 
-        // Helper function to display messages
-        function showStatus(message, className) {
-            const statusElement = document.getElementById('status');
-            statusElement.innerText = message;
-            statusElement.className = className;
+        // --- Display Results Logic ---
+        function displayResults(totalFiles, stats) {
+            overallStatus.innerText = `Success! Processed ${totalFiles} files and packaged them into Bulk_Edited_Files.zip.`;
+            resultsList.innerHTML = "";
+            
+            stats.forEach((stat, index) => {
+                const div = document.createElement('div');
+                div.className = "result-item";
+                
+                if (stat.totalReplacements === 0) {
+                    div.innerHTML = `<strong>Rule ${index + 1}</strong> (Find: "${stat.find}"): <br> 
+                    <em>No matches found in any files.</em>`;
+                } else {
+                    div.innerHTML = `<strong>Rule ${index + 1}</strong> (Find: "${stat.find}" &rarr; Replace: "${stat.replace}"): <br>
+                    Made a total of <strong>${stat.totalReplacements}</strong> changes across <strong>${stat.filesAffected}</strong> of the ${totalFiles} total files.`;
+                }
+                resultsList.appendChild(div);
+            });
+            
+            resultsArea.style.display = "block";
         }
     </script>
 </body>
