@@ -34,12 +34,16 @@
             padding: 10px 15px; border: none; border-radius: 4px;
             font-size: 14px; cursor: pointer; transition: background 0.2s;
         }
-        .btn-secondary { background: #e0e0e0; color: #333; margin-top: 24px; }
+        .btn-secondary { background: #e0e0e0; color: #333; margin-top: 0px; }
         .btn-secondary:hover { background: #ccc; }
         .btn-primary { width: 100%; background: #0066cc; color: white; padding: 15px; font-size: 16px; font-weight: bold;}
         .btn-primary:hover { background: #0052a3; }
         .btn-remove { background: #ff4d4d; color: white; padding: 5px 10px; font-size: 12px; }
         .btn-remove:hover { background: #cc0000; }
+
+        /* Options */
+        .options-row { font-size: 13px; font-weight: normal; margin-bottom: 10px; display: flex; align-items: center; gap: 5px; }
+        .options-row input { margin: 0; }
 
         /* Rule List & Results */
         #rulesList { list-style: none; padding: 0; margin: 15px 0 0 0; }
@@ -49,6 +53,7 @@
             justify-content: space-between; align-items: center; word-break: break-all;
         }
         .rule-text { flex: 1; margin-right: 15px; }
+        .rule-badge { font-size: 11px; background: #e0e0e0; padding: 2px 6px; border-radius: 10px; margin-left: 5px; }
         
         #resultsArea { display: none; background: #eef8f1; padding: 15px; border-radius: 4px; border: 1px solid #c3e6cb;}
         .result-item { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed #ccc; }
@@ -71,16 +76,19 @@
         <label>2. Add Find & Replace Rules</label>
         <div class="flex-row">
             <div>
-                <input type="text" id="findText" placeholder="Find text (Exact match)...">
+                <input type="text" id="findText" placeholder="Find text...">
+                <div class="options-row">
+                    <input type="checkbox" id="matchCase">
+                    <label for="matchCase" style="font-weight: normal; margin: 0;">Match exact case</label>
+                </div>
             </div>
             <div>
                 <input type="text" id="replaceText" placeholder="Replace with...">
             </div>
-            <button id="addRuleBtn" class="btn-secondary">Add Rule</button>
         </div>
+        <button id="addRuleBtn" class="btn-secondary">Add Rule</button>
         <div id="ruleError" class="error"></div>
-        <ul id="rulesList">
-            </ul>
+        <ul id="rulesList"></ul>
     </div>
 
     <div class="section">
@@ -95,11 +103,12 @@
 
     <script>
         // State variables
-        let rules = []; // Array to store {find: "", replace: ""} objects
+        let rules = [];
 
         // --- DOM Elements ---
         const findInput = document.getElementById('findText');
         const replaceInput = document.getElementById('replaceText');
+        const matchCaseCheckbox = document.getElementById('matchCase');
         const rulesListUI = document.getElementById('rulesList');
         const ruleError = document.getElementById('ruleError');
         const fileError = document.getElementById('fileError');
@@ -107,21 +116,26 @@
         const resultsList = document.getElementById('resultsList');
         const overallStatus = document.getElementById('overallStatus');
 
+        // Helper to escape special regex characters from user input
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
         // --- Add Rule Logic ---
         document.getElementById('addRuleBtn').addEventListener('click', () => {
-            const find = findInput.value;
+            // Using .trim() ensures accidental spaces don't break the match
+            const find = findInput.value.trim();
             const replace = replaceInput.value;
+            const matchCase = matchCaseCheckbox.checked;
 
             if (!find) {
                 ruleError.innerText = "You must enter text to find.";
                 return;
             }
 
-            // Clear errors and add to queue
             ruleError.innerText = "";
-            rules.push({ find, replace });
+            rules.push({ find, replace, matchCase });
             
-            // Reset inputs and update UI
             findInput.value = "";
             replaceInput.value = "";
             findInput.focus();
@@ -132,10 +146,14 @@
         function renderRules() {
             rulesListUI.innerHTML = "";
             rules.forEach((rule, index) => {
+                const badge = rule.matchCase ? 
+                    `<span class="rule-badge">Case Sensitive</span>` : 
+                    `<span class="rule-badge">Case Insensitive</span>`;
+
                 const li = document.createElement('li');
                 li.innerHTML = `
                     <div class="rule-text">
-                        <strong>Find:</strong> "${rule.find}" <br>
+                        <strong>Find:</strong> "${rule.find}" ${badge}<br>
                         <strong>Replace:</strong> "${rule.replace}"
                     </div>
                     <button class="btn-remove" onclick="removeRule(${index})">Remove</button>
@@ -154,7 +172,6 @@
         document.getElementById('processBtn').addEventListener('click', async () => {
             const files = document.getElementById('fileInput').files;
             
-            // Validation
             fileError.innerText = "";
             if (files.length === 0) {
                 fileError.innerText = "Please select at least one .txt file.";
@@ -165,11 +182,9 @@
                 return;
             }
 
-            // Hide previous results
             resultsArea.style.display = "none";
             const zip = new JSZip();
             
-            // Set up statistics tracking for each rule
             let ruleStats = rules.map(rule => ({
                 find: rule.find,
                 replace: rule.replace,
@@ -178,33 +193,32 @@
             }));
 
             try {
-                // Loop through all uploaded files
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     let text = await file.text();
                     
-                    // Apply each rule sequentially to the file
                     rules.forEach((rule, ruleIndex) => {
-                        // We use split() to find occurrences. 
-                        // The number of chunks minus 1 equals the number of matches found.
-                        const splitParts = text.split(rule.find);
-                        const matchCount = splitParts.length - 1;
+                        // Create a Regular Expression. 'g' = global (all matches). 'i' = case-insensitive.
+                        const flags = rule.matchCase ? 'g' : 'gi';
+                        const safeSearchPattern = escapeRegExp(rule.find);
+                        const regex = new RegExp(safeSearchPattern, flags);
+
+                        // Check how many matches exist before replacing
+                        const matches = text.match(regex);
+                        const matchCount = matches ? matches.length : 0;
 
                         if (matchCount > 0) {
-                            // Update stats
                             ruleStats[ruleIndex].totalReplacements += matchCount;
                             ruleStats[ruleIndex].filesAffected += 1;
                             
-                            // Rejoin the text with the replacement string
-                            text = splitParts.join(rule.replace);
+                            // Perform the replacement
+                            text = text.replace(regex, rule.replace);
                         }
                     });
                     
-                    // Add the final modified text to the zip
                     zip.file(file.name, text);
                 }
 
-                // Generate and trigger download
                 const blob = await zip.generateAsync({ type: "blob" });
                 const downloadUrl = URL.createObjectURL(blob);
                 const a = document.createElement("a");
@@ -215,7 +229,6 @@
                 document.body.removeChild(a);
                 URL.revokeObjectURL(downloadUrl);
                 
-                // Display Results Report
                 displayResults(files.length, ruleStats);
 
             } catch (error) {
